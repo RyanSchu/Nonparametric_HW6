@@ -1,0 +1,363 @@
+---
+title: "Nonparametric HW 6"
+author: "Ryan Schubert"
+date: "April 12, 2020"
+output: html_document
+---
+
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set( warning=FALSE)
+```
+
+```{r setup, include=FALSE}
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(viridis)
+library(visdat)
+library(reshape2)
+library(splitstackshape)
+library(stringr)
+library(mice)
+
+barcount<-function(data){
+  count<-table(data)
+  print(barplot(count))
+}
+
+
+set.seed(1234)
+
+school_data<-fread("C:\\Users\\rshoo\\OneDrive\\Desktop\\Spring2020\\Nonparametric\\ill_school_data.csv", na.strings=c("","NA"))
+```
+
+## Question 1
+
+Describe the data. Who is in this data set? What are some of the
+intersting characteristics of this data set?
+
+
+```{r}
+colnames(school_data)
+#summary(school_data)
+vis_miss(school_data)
+
+
+barcount(school_data$ClassGrade) # very few 11th graders, fewer people ~16 which is accurately reflected in the graph
+barcount(school_data$Gender) #gender fairly balanced, with some unknown
+barcount(school_data$Ageyears) #ages should be between roughly 14 to 19 years based on the gardes, though there is some leeway with people skipping grades and people being held back there are clearly incorrect data points
+
+#lets check out some weird ones
+table(school_data$Preferred_Status)
+table(school_data$Superpower)
+
+```
+
+This data is a subsample taken from a census that targets students between 4th-12th grade, however this data notably only contains individuals between 9th and 12th grade, with proportionally few of those belonging to the 11th grade class. Based on this, all students should be roughly highschool age (13-18) with very few individuals of 16-17 (the average age of 11th graders) . This is accurately reflected when we plot the age of individuals and find very few 16 year olds compared to other ages. Additionally when we eamine the age range of the data, we find several ages well beyond the scope of this data even accounting for the fact that some individuals may be outside of the average highschool range (13-18) based on grade skipping/being held back. It should be assumed tht all data types have a similar degree of error associated with them. When examining the gender makeup, we do find that the genders are fairly balanced with a handful of participants having unknown gender.
+
+
+## Question 2
+
+Perform the appropriate test to test the null hypothesis that handedness (i.e. the variable named Handed) is independent of favorite
+season vs the alternative hypothesis that there is some dependence.
+Perform this test after removing responses that are blank. Do you
+think it is ok here to remove the blanks? Explain why or why not.
+Explain your reasoning for the test you chose and state your conclusions.
+
+```{r}
+
+#First lets look at our variables as it should be assumed that data has errors in it
+
+barcount(school_data$Favorite_Season)
+barcount(school_data$Handed)
+table(school_data$Handed)
+
+withMissing<-school_data %>% select(Handed,Favorite_Season) %>% table()
+
+
+
+
+# ?chisq.test
+##Number of observations depends on when you handle missing data so we will test both as removal methods 
+school_data %>% 
+  filter(complete.cases(.)) %>% dim()
+
+school_data %>% select(Handed,Favorite_Season) %>%
+  filter(complete.cases(.)) %>% dim()
+
+noMissing1<-school_data %>% 
+  filter(complete.cases(.)) %>% 
+  select(Handed,Favorite_Season) %>% 
+  table()
+
+noMissing2<-school_data %>% 
+  select(Handed,Favorite_Season) %>%   
+  filter(complete.cases(.)) %>%
+  table()
+
+chisq.test(school_data$Handed,school_data$Favorite_Season)
+# noMissing1
+# noMissing2
+
+barplot(withMissing)
+barplot(noMissing1)
+barplot(noMissing2)
+sum(withMissing)
+
+#Now lets do a permuted Chisq test
+
+fisher.test(withMissing)
+fisher.test(noMissing1)
+fisher.test(noMissing2)
+
+XsqObs_with<-chisq.test(withMissing)$statistic
+XsqObs_no1<-chisq.test(noMissing1)$statistic
+XsqObs_no2<-chisq.test(noMissing2)$statistic
+
+dat_with<-withMissing %>% melt() %>% expandRows("value")
+dat_no1<-noMissing1 %>% melt() %>% expandRows("value")
+dat_no2<-noMissing2 %>% melt() %>% expandRows("value") ## turns out this version is not actually different from the normal version
+
+#permute the English scores to test independence with math
+nperms<-1000
+ChiPermwith<-rep(NA,nperms)
+ChiPermno1<-rep(NA,nperms)
+ChiPermno2<-rep(NA,nperms)
+
+for ( i in 1:nperms){
+  datPermutedwith<-dat_with
+  datPermutedwith$Handed<-sample(datPermutedwith$Handed,length(datPermutedwith$Handed),replace=F)
+  ChiPermwith[i]<-chisq.test(table(datPermutedwith))$statistic
+  
+  datPermutedno1<-dat_no1
+  datPermutedno1$Handed<-sample(datPermutedno1$Handed,length(datPermutedno1$Handed),replace=F)
+  ChiPermno1[i]<-chisq.test(table(datPermutedno1))$statistic
+  
+  datPermutedno2<-dat_no2
+  datPermutedno2$Handed<-sample(datPermutedno2$Handed,length(datPermutedno2$Handed),replace=F)
+
+  ChiPermno2[i]<-chisq.test(table(datPermutedno2))$statistic
+}
+
+hist(ChiPermwith)
+abline(v=XsqObs_with)
+sum(ChiPermwith > XsqObs_with)/nperms
+
+hist(ChiPermno1)
+abline(v=XsqObs_no1)
+sum(ChiPermno1 > XsqObs_no1)/nperms
+
+hist(ChiPermno2)
+abline(v=XsqObs_no2)
+sum(ChiPermno2 > XsqObs_no2)/nperms
+
+```
+
+In general you should always hope to keep as much data as possible. Here you can argue that the decision is arbitrary because it can be assumed that there is no true association between the two data sets. However pvalues are sensitive to sample size especially in cases with small effect sizes. Removing observations arbitrarily reduces our power and opens up our analysis to more scrutiny.
+
+Here we are dealing with two categorical variables with unbalanced groups, so I elected to use the permuted chisq test. Regardless of whether we use only complete data or not we do not find a significant relationship between the variables of handedness and favorite season. I also tested the data with a Fisher's test and got the same result.
+
+## Question 3
+
+Build a simple linear regression model with height as your response
+and arm span as your predictor. First, you need to clean the data,
+then use MICE to impute missing values using a CART model. Estimate the simple linear regression model on each of the compeleted
+data sets and use Rubin’s combining rules to combined estiamtes
+across imputations. State your final estimates for each of the slope
+and intercept parameters as well as standard errors for each of these
+combined estimates.
+
+```{r}
+
+summary(school_data$Height_cm)
+summary(school_data$Armspan_cm)
+table(school_data$Height_cm)
+table(school_data$Armspan_cm)
+
+remove_characters<-function(string){
+  string<-gsub("[^0-9.']","",string)
+  string
+}
+
+feet_to_cm<-function(vector){ #there has to be a library that does exactly this
+  # str(string)
+  # str(vector)
+  new_vec<-rep(0,length(vector))
+  for (i in 1:length(vector)){
+    if(grepl("'",vector[i],fixed=T)){
+       foot<-as.numeric(as.character(unlist(strsplit(vector[i],"'",fixed=T))[1]))
+       inch<-as.numeric(as.character(unlist(strsplit(vector[i],"'",fixed=T))[2]))
+       # str(foot);str(inch)
+       convert<-foot * 30.48 + inch * 2.54
+       new_vec[i]<-convert
+    } else {
+      new_vec[i]<-as.numeric(vector[i])
+    }
+  }
+  return(new_vec)
+}
+
+#also going to remove outliers, though some of the outliers are likely the result of a shifted decimal place this data is still suspect so I am cautiously going to remove it
+
+slr_data<-school_data %>%
+  mutate(Height_cm=remove_characters(Height_cm),Armspan_cm=remove_characters(Armspan_cm)) %>%
+  mutate(Height_cm=feet_to_cm(Height_cm),Armspan_cm=feet_to_cm(Armspan_cm)) %>% 
+  mutate_if(is.character,as.factor) %>%
+  mutate_if(is.factor,as.numeric)
+  
+
+summary(slr_data$Height_cm)
+summary(slr_data$Armspan_cm)
+
+slr_data$Height_cm[slr_data$Height_cm > 300 | slr_data$Height_cm < 100]<-NA
+slr_data$Armspan_cm[slr_data$Armspan_cm > 300 | slr_data$Armspan_cm < 100]<-NA
+
+summary(slr_data$Height_cm)
+summary(slr_data$Armspan_cm)
+
+```
+
+The data has a number of issues, the basics of which includes clear outliers/errors, unwanted character strings, and incorrect units. I corrected basic unit conversions, removed escess strings and removed obviously problematic data. Additionally, I converted the data not used for regression into numeric sets for the mice function.
+
+
+## Run the Cart imputation and compare
+
+```{r}
+
+predictors<-slr_data %>% select(-Height_cm,-Armspan_cm)
+
+
+imputed_slr_data<-mice(data=slr_data,method = "cart")
+
+dim(imputed_slr_data$imp$Height_cm)
+dim(imputed_slr_data$imp$Armspan_cm)
+
+Height_indexes<-as.numeric(rownames(imputed_slr_data$imp$Height_cm))
+Armspan_indexes<-as.numeric(rownames(imputed_slr_data$imp$Armspan_cm))
+
+regression_data<- slr_data %>% select(Height_cm,Armspan_cm )
+regression_obj<-list()
+for (i in 1:5){
+  tmp<-regression_data
+  tmp[Height_indexes,"Height_cm"]<-imputed_slr_data$imp$Height_cm[,i]
+  tmp[Armspan_indexes,"Armspan_cm"]<-imputed_slr_data$imp$Armspan_cm[,i]
+  regression_obj[[i]]<-lm(Height_cm ~ Armspan_cm,data=tmp)#$coefficient
+}
+
+
+cat("estmates of intercept and slope and their respective means:\n")
+model_estimates<-bind_rows(regression_obj[[1]]$coefficients,
+                           regression_obj[[2]]$coefficients,
+                           regression_obj[[3]]$coefficients,
+                           regression_obj[[4]]$coefficients,
+                           regression_obj[[5]]$coefficients)
+
+mean_estimates<-colMeans(bind_rows(regression_obj[[1]]$coefficients,
+                                   regression_obj[[2]]$coefficients,
+                                   regression_obj[[3]]$coefficients,
+                                   regression_obj[[4]]$coefficients,
+                                   regression_obj[[5]]$coefficients))
+(model_estimates - t(replicate(5,mean_estimates)))^2
+
+
+cat("estmates of parameter variances:\n")
+
+model_variances<-bind_rows(
+summary(regression_obj[[1]])$coefficients[,'Std. Error'],
+summary(regression_obj[[2]])$coefficients[,'Std. Error'],
+summary(regression_obj[[3]])$coefficients[,'Std. Error'],
+summary(regression_obj[[4]])$coefficients[,'Std. Error'],
+summary(regression_obj[[5]])$coefficients[,'Std. Error'])
+model_variances
+within<-colMeans(bind_rows(
+summary(regression_obj[[1]])$coefficients[,'Std. Error'],
+summary(regression_obj[[2]])$coefficients[,'Std. Error'],
+summary(regression_obj[[3]])$coefficients[,'Std. Error'],
+summary(regression_obj[[4]])$coefficients[,'Std. Error'],
+summary(regression_obj[[5]])$coefficients[,'Std. Error']))
+cat("within parameter variances :\n")
+within
+between<- 5/4 * colMeans((model_estimates - t(replicate(5,mean_estimates)))^2)
+cat("between parameter variances :\n")
+between
+
+
+within + (1 + 1/5) * between
+```
+
+
+
+## Question 4
+
+Repeat the previous problem, but use a random forest for imputation
+in MICE instead of a cart model.
+
+```{r}
+
+imputed_slr_data<-mice(data=slr_data,method = "rf")
+
+dim(imputed_slr_data$imp$Height_cm)
+dim(imputed_slr_data$imp$Armspan_cm)
+
+Height_indexes<-as.numeric(rownames(imputed_slr_data$imp$Height_cm))
+Armspan_indexes<-as.numeric(rownames(imputed_slr_data$imp$Armspan_cm))
+
+regression_data<- slr_data %>% select(Height_cm,Armspan_cm )
+regression_obj<-list()
+for (i in 1:5){
+  tmp<-regression_data
+  tmp[Height_indexes,"Height_cm"]<-imputed_slr_data$imp$Height_cm[,i]
+  tmp[Armspan_indexes,"Armspan_cm"]<-imputed_slr_data$imp$Armspan_cm[,i]
+  regression_obj[[i]]<-lm(Height_cm ~ Armspan_cm,data=tmp)#$coefficient
+}
+
+
+cat("estmates of intercept and slope and their respective means:\n")
+model_estimates<-bind_rows(regression_obj[[1]]$coefficients,
+                           regression_obj[[2]]$coefficients,
+                           regression_obj[[3]]$coefficients,
+                           regression_obj[[4]]$coefficients,
+                           regression_obj[[5]]$coefficients)
+
+mean_estimates<-colMeans(bind_rows(regression_obj[[1]]$coefficients,
+                                   regression_obj[[2]]$coefficients,
+                                   regression_obj[[3]]$coefficients,
+                                   regression_obj[[4]]$coefficients,
+                                   regression_obj[[5]]$coefficients))
+# (model_estimates - t(replicate(5,mean_estimates)))^2
+
+
+cat("estmates of parameter variances :\n")
+
+model_variances<-bind_rows(
+summary(regression_obj[[1]])$coefficients[,'Std. Error'],
+summary(regression_obj[[2]])$coefficients[,'Std. Error'],
+summary(regression_obj[[3]])$coefficients[,'Std. Error'],
+summary(regression_obj[[4]])$coefficients[,'Std. Error'],
+summary(regression_obj[[5]])$coefficients[,'Std. Error'])
+model_variances
+within<-colMeans(bind_rows(
+summary(regression_obj[[1]])$coefficients[,'Std. Error'],
+summary(regression_obj[[2]])$coefficients[,'Std. Error'],
+summary(regression_obj[[3]])$coefficients[,'Std. Error'],
+summary(regression_obj[[4]])$coefficients[,'Std. Error'],
+summary(regression_obj[[5]])$coefficients[,'Std. Error']))
+cat("within parameter variances :\n")
+within
+between<- 5/4 * colMeans((model_estimates - t(replicate(5,mean_estimates)))^2)
+cat("between parameter variances :\n")
+between
+
+cat("combined parameter variances :\n")
+within + (1 + 1/5) * between
+```
+
+## Question 5
+
+Finally, put your code and results in a github repository. In the final
+version of your homework that you submit to Sakai, the answer to
+this part will simply be a link to that github repository
+
+
+https://github.com/RyanSchu/Nonparametric_HW6
